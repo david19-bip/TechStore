@@ -1,0 +1,52 @@
+# ==========================================
+# Variables de entorno y credenciales
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# Python (Backend)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# ==========================================
+# Frontend / Node.js (si agregan frontend)
+# ==========================================
+node_modules/
+.vite/
+.next/
+coverage/
+
+# ==========================================
+# Editores y Sistema Operativo
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# Logs y temporales
+# ==========================================
+*.log
+*.tmp
+*.zip
