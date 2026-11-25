@@ -1,12 +1,23 @@
-"""Lógica de negocio para la gestión de categorías."""
+"""Lógica de negocio para la entidad Categoría (con desactivación y auditoría)."""
 
 from fastapi import HTTPException, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.categoria import Categoria
+from app.models.producto import Producto
+from app.models.usuario import Usuario
 from app.repositories import categoria_repo
 from app.schemas.categoria import CategoriaCreate, CategoriaUpdate
+from app.services import auditoria_service
+
+
+def _snapshot(c: Categoria) -> dict:
+    return {
+        "id_categoria": c.id_categoria,
+        "nombre": c.nombre,
+        "descripcion": c.descripcion,
+        "estado": c.estado,
+    }
 
 
 def listar(db: Session, estado: str | None = None) -> list[Categoria]:
@@ -23,26 +34,54 @@ def obtener(db: Session, id_categoria: int) -> Categoria:
     return categoria
 
 
-def crear(db: Session, datos: CategoriaCreate) -> Categoria:
+def crear(
+    db: Session,
+    datos: CategoriaCreate,
+    actor: Usuario,
+    direccion_ip: str | None = None,
+) -> Categoria:
     nombre_limpio = datos.nombre.strip()
     if categoria_repo.obtener_por_nombre(db, nombre_limpio):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe una categoría con el nombre '{nombre_limpio}'.",
+            detail=f"Ya existe una categoría llamada '{nombre_limpio}'.",
         )
 
     nueva = Categoria(
         nombre=nombre_limpio,
-        descripcion=datos.descripcion,
+        descripcion=datos.descripcion.strip() if datos.descripcion else None,
         estado=datos.estado,
     )
-    return categoria_repo.crear_categoria(db, nueva)
+    try:
+        db.add(nueva)
+        db.flush()
+        auditoria_service.registrar_evento(
+            db,
+            id_usuario=actor.id_usuario,
+            modulo="categorias",
+            tabla_afectada="categorias",
+            registro_id=nueva.id_categoria,
+            accion="INSERT",
+            datos_nuevos=_snapshot(nueva),
+            direccion_ip=direccion_ip,
+        )
+        db.commit()
+        db.refresh(nueva)
+        return nueva
+    except Exception:
+        db.rollback()
+        raise
 
 
 def actualizar(
-    db: Session, id_categoria: int, datos: CategoriaUpdate
+    db: Session,
+    id_categoria: int,
+    datos: CategoriaUpdate,
+    actor: Usuario,
+    direccion_ip: str | None = None,
 ) -> Categoria:
     categoria = obtener(db, id_categoria)
+    antes = _snapshot(categoria)
     cambios = datos.model_dump(exclude_unset=True)
 
     if "nombre" in cambios and cambios["nombre"] is not None:
@@ -51,27 +90,100 @@ def actualizar(
         if existente and existente.id_categoria != id_categoria:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Ya existe otra categoría con el nombre '{nuevo_nombre}'.",
+                detail=f"Ya existe otra categoría llamada '{nuevo_nombre}'.",
             )
         cambios["nombre"] = nuevo_nombre
+
+    if "descripcion" in cambios and cambios["descripcion"] is not None:
+        cambios["descripcion"] = cambios["descripcion"].strip()
 
     for campo, valor in cambios.items():
         setattr(categoria, campo, valor)
 
-    return categoria_repo.guardar_categoria(db, categoria)
-
-
-def eliminar(db: Session, id_categoria: int) -> dict[str, str]:
-    categoria = obtener(db, id_categoria)
     try:
-        categoria_repo.eliminar_categoria(db, categoria)
-    except IntegrityError:
+        auditoria_service.registrar_evento(
+            db,
+            id_usuario=actor.id_usuario,
+            modulo="categorias",
+            tabla_afectada="categorias",
+            registro_id=categoria.id_categoria,
+            accion="UPDATE",
+            datos_anteriores=antes,
+            datos_nuevos=_snapshot(categoria),
+            direccion_ip=direccion_ip,
+        )
+        db.commit()
+        db.refresh(categoria)
+        return categoria
+    except Exception:
         db.rollback()
+        raise
+
+
+def desactivar(
+    db: Session,
+    id_categoria: int,
+    actor: Usuario,
+    direccion_ip: str | None = None,
+) -> Categoria:
+    categoria = obtener(db, id_categoria)
+    antes = _snapshot(categoria)
+    categoria.estado = "inactiva"
+    try:
+        auditoria_service.registrar_evento(
+            db,
+            id_usuario=actor.id_usuario,
+            modulo="categorias",
+            tabla_afectada="categorias",
+            registro_id=categoria.id_categoria,
+            accion="UPDATE",
+            datos_anteriores=antes,
+            datos_nuevos=_snapshot(categoria),
+            direccion_ip=direccion_ip,
+        )
+        db.commit()
+        db.refresh(categoria)
+        return categoria
+    except Exception:
+        db.rollback()
+        raise
+
+
+def eliminar(
+    db: Session,
+    id_categoria: int,
+    actor: Usuario,
+    direccion_ip: str | None = None,
+) -> None:
+    categoria = obtener(db, id_categoria)
+    tiene_productos = (
+        db.query(Producto)
+        .filter(Producto.id_categoria == id_categoria)
+        .first()
+        is not None
+    )
+    if tiene_productos:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 "No se puede eliminar la categoría porque tiene productos asociados. "
-                "Puedes cambiar su estado a 'inactiva'."
+                "Usa el endpoint PATCH /desactivar en su lugar."
             ),
         )
-    return {"mensaje": f"Categoría {id_categoria} eliminada correctamente."}
+    antes = _snapshot(categoria)
+    try:
+        db.delete(categoria)
+        auditoria_service.registrar_evento(
+            db,
+            id_usuario=actor.id_usuario,
+            modulo="categorias",
+            tabla_afectada="categorias",
+            registro_id=id_categoria,
+            accion="DELETE",
+            datos_anteriores=antes,
+            direccion_ip=direccion_ip,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
