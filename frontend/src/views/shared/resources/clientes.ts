@@ -1,0 +1,5 @@
+import type { Resource } from '../types'
+
+const resource: Resource = { title: 'Clientes', endpoint: '/clientes/', id: 'id_cliente', search: 'buscar', createRole: ['administrador'], deactivate: '/clientes/{id}/desactivar', columns: [{ key: 'numero_documento', label: 'Documento' }, { key: 'nombre', label: 'Nombre' }, { key: 'apellido', label: 'Apellido' }, { key: 'telefono', label: 'Teléfono' }, { key: 'email', label: 'Correo' }, { key: 'estado', label: 'Estado', format: 'status' }], fields: [{ name: 'tipo_documento', label: 'Tipo de documento', type: 'select', required: true, options: [{ value: 'CC', label: 'Cédula (CC)' }, { value: 'CE', label: 'Cédula extranjería (CE)' }, { value: 'NIT', label: 'NIT' }, { value: 'PASAPORTE', label: 'Pasaporte' }] }, { name: 'numero_documento', label: 'Número de documento', required: true }, { name: 'nombre', label: 'Nombre', required: true }, { name: 'apellido', label: 'Apellido', required: true }, { name: 'telefono', label: 'Teléfono' }, { name: 'email', label: 'Correo electrónico', type: 'email' }, { name: 'ciudad', label: 'Ciudad' }, { name: 'direccion', label: 'Dirección', wide: true }] }
+
+export default resource
